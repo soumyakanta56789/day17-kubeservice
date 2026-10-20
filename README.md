@@ -1,38 +1,84 @@
-# day15-kubernet-fundamentals
-# Building and Testing My First Local Kubernetes Environment 🚀
+# Kubernetes Service Routing & Diagnostics Guide (`hello`)
 
-## 📝 What is this project?
-Instead of just reading about cloud technology, I set up a real, fully-functioning mini data center on my computer. I learned how to launch a website server, monitor its health from behind the scenes, and safely save all of my code tracking changes to GitHub just like professional software engineers do.
+This project demonstrates declarative service routing, DNS resolution, load balancing, and endpoint lifecycles using the `hello` Service inside a Kubernetes cluster.
 
 ---
 
-## 🔥 Step-by-Step Milestones I Completed:
+## 🛠️ Service Architecture
 
-### 1. Started the Mini Cloud Center (Kubernetes)
-* **What I did:** I used a tool called **`kind`** to build a localized Kubernetes cluster on my virtual machine.
-* **Why it matters:** This created a smart ecosystem that can run, manage, and automatically heal software applications.
+The project deploys a stable **ClusterIP** network interface to balance internal container traffic.
 
-### 2. Verified the Infrastructure (Nodes)
-* **What I did:** I checked the main engine room of my cluster to ensure the server nodes were active and `Ready`.
-* **Why it matters:** This proved the foundation was solid before launching any apps.
+* **Service Name:** `hello`
+* **Network Mode:** `ClusterIP` (Internal cluster access only)
+* **Selector:** `app: hello`
+* **Routing State:** Routes traffic to **three healthy backend addresses** managed via EndpointSlices.
 
-### 3. Launched and Inspected the Website (Deployments & Pods)
-* **What I did:** I deployed a website server (Nginx) and checked on the "Pods" (the tiny containers running the actual website).
-* **Why it matters:** I verified that the app was built correctly and running smoothly in its isolated space.
+### 🔌 Understanding Ports
 
-### 4. Read the Cluster History and Server Logs (Events & Logs)
-* **What I did:** I investigated the cluster's internal timeline ("Events") to see how it was built, and I looked at the live "Logs" (the raw terminal output) of my running website containers.
-* **Why it matters:** This taught me how to read the server's mind to troubleshoot issues, check for errors, and verify that the app is listening to traffic.
-
-### 5. Saved My Work to the Cloud (Git Push)
-* **What I did:** After everything worked perfectly, I bundled all my configuration code scripts and safely pushed them up to my remote repository on GitHub.
-* **Why it matters:** This ensures my project is backed up safely, version-controlled, and ready to share with the engineering community.
+| Port Type | Configuration | Purpose |
+| :--- | :--- | :--- |
+| **`port`** | `80` | The stable external port exposed by the Service to the rest of the cluster. |
+| **`targetPort`** | `8080` | The internal backend port where your container application is listening for traffic. |
 
 ---
 
-## 🛠️ The Simple Tech Stack I Used:
-* **Kubernetes (`kind`)** – The automated system that keeps the website alive.
-* **Kubectl** – The command controller I used to talk to Kubernetes.
-* **Git & GitHub** – The tracking system used to save and backup my project.
-* **Nginx** – The website engine running inside my cluster.
-# day17-kubeservice
+## 📋 Service Definition (`service.yaml`)
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  type: ClusterIP
+  selector:
+    app: hello
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+---
+
+## 🛰️ Core Concepts & Components
+
+### 📦 EndpointSlices
+* **Automated Scaling:** Tracks the real-time IP network addresses of ready backend pods.
+* **Fidelity:** Replaces legacy, monolithic endpoint structures to support high-scale clusters.
+
+### 🌐 Service DNS Lookup
+* **CoreDNS Resolution:** Resolves short names natively from inside any running pod.
+* **Internal FQDN Format:** Resolves fully via `hello.default.svc.cluster.local`.
+
+---
+
+## 🔬 Diagnostic & Verification Scenarios
+
+### 1. Launching a Temporary Testing Pod
+To spin up an interactive debugging environment, deploy a busybox test container:
+```bash
+kubectl run tmp --image=busybox:1.36 --restart=Never --rm -it -- sh
+```
+
+### 2. Testing Internal DNS
+* Run `nslookup hello` to verify internal cluster resolution.
+* Ensure CoreDNS returns the exact `ClusterIP` mapped to the Service.
+
+### 3. Verification Loop & Load Balancing
+Run this request sequence inside your test container to evaluate endpoint routing:
+```bash
+for i in {1..6}; do 
+  wget -qO- http://hello/hostname
+  echo " - Request $i done"
+done
+```
+* **Expected Result:** The loop prints out varying pod hostnames, proving that traffic balances across all available backends evenly.
+
+### ♻️ Endpoint Lifecycle & Recovery
+* **Pod Deletion:** Deleting an active backend pod immediately detaches its IP from the EndpointSlice.
+* **Self-Healing:** A replacement pod spins up, passes readiness checks, and attaches automatically.
+
+### ❌ Misconfiguration Recovery (Wrong Selector)
+* **The Fault:** Applying a non-matching selector (e.g., `app=wrong`) empties the EndpointSlice values.
+* **The Symptom:** Traffic requests fail instantly because the Service has zero active backend addresses.
+* **The Fix:** Restoring `app: hello` to the manifest reconciles the configuration and updates traffic paths smoothly.
